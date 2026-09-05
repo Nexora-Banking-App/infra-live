@@ -1,6 +1,5 @@
 name: "Terraform - Destroy Test Environment"
 
-# Only triggered manually from the GitHub Actions UI
 on:
   workflow_dispatch:
     inputs:
@@ -22,17 +21,17 @@ jobs:
         working-directory: ./test
 
     steps:
-      # 1. Safety Check: Require typing "destroy"
+      # 1. Checkout repository FIRST so ./test folder exists
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Safety Check: Require typing "destroy"
       - name: Verify Confirmation
         run: |
           if [ "${{ github.event.inputs.confirmation }}" != "destroy" ]; then
             echo "Confirmation text did not match 'destroy'. Aborting!"
             exit 1
           fi
-
-      # 2. Checkout the repository
-      - name: Checkout Code
-        uses: actions/checkout@v4
 
       # 3. Setup Git for private modules
       - name: Configure Git for Private Modules
