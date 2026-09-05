@@ -1,0 +1,68 @@
+name: "Terraform - Test Environment"
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'test/**'
+      - '.github/workflows/terraform-test.yml'
+  pull_request:
+    branches:
+      - main
+    paths:
+      - 'test/**'
+  workflow_dispatch: # Allows manual trigger from the GitHub Actions UI
+
+# Required for AWS OIDC authentication
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  terraform:
+    name: "Terraform Plan & Apply"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./test # Executes all commands inside the test environment folder
+
+    steps:
+      # 1. Checkout the infra-live repository
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      # 2. Setup GitHub Token to allow Terraform to clone private infra-modules
+      - name: Configure Git for Private Modules
+        run: |
+          git config --global url."https://oauth2:${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"
+
+      # 3. Setup Terraform 1.10.0+ (Required for native S3 use_lockfile)
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.0"
+
+      # 4. Authenticate to AWS via OIDC
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      # 5. Initialize Terraform (Downloads modules, providers, and connects to S3 state)
+      - name: Terraform Init
+        run: terraform init
+
+      # 6. Validate Terraform Code
+      - name: Terraform Validate
+        run: terraform validate
+
+      # 7. Generate Execution Plan
+      - name: Terraform Plan
+        run: terraform plan -out=tfplan
+
+      # 8. Apply Changes (Only executes on push to main or manual trigger, NOT on Pull Requests)
+      - name: Terraform Apply
+        if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        run: terraform apply -auto-approve tfplan
