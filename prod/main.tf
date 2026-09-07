@@ -3,7 +3,7 @@ module "prod_eks" {
   source = "git::https://github.com/Nexora-Banking-App/infra-modules.git//eks?ref=main"
 
   cluster_name        = "nexora-prod"
-  cluster_version     = "1.30"
+  cluster_version     = "1.31"
   environment         = "prod"
   vpc_id              = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids          = data.terraform_remote_state.shared.outputs.private_subnets
