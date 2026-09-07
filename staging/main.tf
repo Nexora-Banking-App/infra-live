@@ -98,3 +98,24 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   depends_on = [module.staging_eks]
 }
+# =============================================================================
+# 5. EXTERNAL SECRETS OPERATOR IAM ROLE (IRSA)
+# =============================================================================
+module "external_secrets_irsa_role" {
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "5.39.0"
+
+  role_name = "nexora-staging-external-secrets"
+
+  # Policy granting read access to AWS Secrets Manager
+  role_policy_arns = {
+    secrets_read = "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
+  }
+
+  oidc_providers = {
+    ex = {
+      provider_arn               = module.staging_eks.oidc_provider_arn
+      namespace_service_accounts = ["external-secrets:external-secrets"]
+    }
+  }
+}
