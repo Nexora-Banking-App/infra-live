@@ -35,13 +35,16 @@ resource "helm_release" "argocd" {
   namespace        = "argocd"
   create_namespace = true
 
-  # Expose server cleanly
   set {
     name  = "server.service.type"
     value = "ClusterIP"
   }
 
-  depends_on = [module.staging_eks]
+  # CRITICAL FIX: Wait for the AWS Load Balancer Controller to be fully running first!
+  depends_on = [
+    module.staging_eks,
+    helm_release.aws_load_balancer_controller
+  ]
 }
 
 # =============================================================================
