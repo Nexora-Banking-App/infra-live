@@ -7,7 +7,7 @@ module "staging_eks" {
   environment         = "staging"
   vpc_id              = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids          = data.terraform_remote_state.shared.outputs.private_subnets
-  node_instance_types = ["t3.small"]
+  node_instance_types = ["t3.micro"] # Use t3.micro for Free Tier, t3.small for more power
   desired_size        = 4
   min_size            = 2
   max_size            = 6
@@ -27,7 +27,6 @@ module "staging_rds" {
 }
 
 # 3. Declarative GitOps Engine: ArgoCD
-# 3. Declarative GitOps Engine: ArgoCD
 resource "helm_release" "argocd" {
   name             = "argocd"
   repository       = "https://argoproj.github.io/argo-helm"
@@ -35,15 +34,14 @@ resource "helm_release" "argocd" {
   version          = "6.7.18"
   namespace        = "argocd"
   create_namespace = true
-  wait = false
-  timeout = 600
+  wait             = false
+  timeout          = 600
 
   set {
     name  = "server.service.type"
     value = "ClusterIP"
   }
 
-  # AUTOMATED: Bakes the --enable-helm flag into ArgoCD on install!
   set {
     name  = "configs.cm.kustomize\\.buildOptions"
     value = "--enable-helm"
@@ -55,14 +53,11 @@ resource "helm_release" "argocd" {
   ]
 }
 
-# =============================================================================
 # 4. AWS LOAD BALANCER CONTROLLER (Native Ingress via ALBs)
-# =============================================================================
-
-# 4a. Create the IAM Role for the Controller via OIDC (IRSA)
 module "load_balancer_controller_irsa_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "5.39.0"
+
   role_name                              = "nexora-staging-load-balancer-controller"
   attach_load_balancer_controller_policy = true
 
@@ -74,15 +69,15 @@ module "load_balancer_controller_irsa_role" {
   }
 }
 
-# 4b. Install the AWS Load Balancer Controller via Helm
 resource "helm_release" "aws_load_balancer_controller" {
   name       = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   chart      = "aws-load-balancer-controller"
   version    = "1.7.2"
   namespace  = "kube-system"
-  wait = false
-  timeout = 600
+  wait       = false
+  timeout    = 600
+
   set {
     name  = "clusterName"
     value = module.staging_eks.cluster_name
@@ -98,7 +93,6 @@ resource "helm_release" "aws_load_balancer_controller" {
     value = "aws-load-balancer-controller"
   }
 
-  # Injects the IAM Role ARN we just created!
   set {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = module.load_balancer_controller_irsa_role.iam_role_arn
@@ -106,16 +100,14 @@ resource "helm_release" "aws_load_balancer_controller" {
 
   depends_on = [module.staging_eks]
 }
-# =============================================================================
+
 # 5. EXTERNAL SECRETS OPERATOR IAM ROLE (IRSA)
-# =============================================================================
 module "external_secrets_irsa_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "5.39.0"
 
   role_name = "nexora-staging-external-secrets"
 
-  # Policy granting read access to AWS Secrets Manager
   role_policy_arns = {
     secrets_read = "arn:aws:iam::aws:policy/SecretsManagerReadWrite"
   }
