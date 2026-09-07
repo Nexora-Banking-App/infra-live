@@ -7,10 +7,10 @@ module "staging_eks" {
   environment         = "staging"
   vpc_id              = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids          = data.terraform_remote_state.shared.outputs.private_subnets
-  node_instance_types = ["t3.micro"] # Use t3.micro for Free Tier, t3.small for more power
-  desired_size        = 8
-  min_size            = 4
-  max_size            = 10
+  node_instance_types = ["c7i-flex-large"] # Use t3.micro for Free Tier, t3.small for more power
+  desired_size        = 2
+  min_size            = 1
+  max_size            = 3
 }
 
 # 2. Independent Staging Database (Single-AZ to save cost)
