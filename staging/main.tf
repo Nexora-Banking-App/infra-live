@@ -8,7 +8,7 @@ module "staging_eks" {
   vpc_id              = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids          = data.terraform_remote_state.shared.outputs.private_subnets
   node_instance_types = ["t3.small"]
-  desired_size        = 4 
+  desired_size        = 4
   min_size            = 2
   max_size            = 6
 }
