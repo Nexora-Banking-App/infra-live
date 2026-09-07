@@ -1,0 +1,96 @@
+name: "Terraform - Infrastructure Pipeline"
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_env:
+        description: "Select Target Environment:"
+        required: true
+        type: choice
+        options:
+          - prod-shared
+          - staging
+          - prod
+      action:
+        description: "Select Action:"
+        required: true
+        type: choice
+        options:
+          - plan
+          - apply
+          - destroy
+      destroy_confirmation:
+        description: 'DANGER: If destroying, you MUST type "DESTROY" below:'
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  id-token: write
+  contents: read
+
+# Prevents concurrent runs against the exact same environment
+concurrency:
+  group: terraform-${{ inputs.target_env }}
+  cancel-in-progress: false
+
+jobs:
+  terraform:
+    name: "${{ inputs.action }} on ${{ inputs.target_env }}"
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ./${{ inputs.target_env }}
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: "1.10.0"
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+
+      # 1. Quality & Syntax Gates
+      - name: Check Terraform Formatting
+        run: terraform fmt -check -recursive
+
+      - name: Initialize Backend & Modules
+        run: terraform init
+
+      - name: Validate Configuration
+        run: terraform validate
+
+      # 2. Safety Gate for Destructive Actions
+      - name: Destroy Safety Verification
+        if: inputs.action == 'destroy'
+        run: |
+          if [ "${{ inputs.destroy_confirmation }}" != "DESTROY" ]; then
+            echo "ERROR: Destruction aborted. You must type 'DESTROY' in the confirmation box."
+            exit 1
+          fi
+
+      # 3. Action 1: Inspection Plan Only
+      - name: Generate Speculative Plan
+        if: inputs.action == 'plan'
+        run: terraform plan
+
+      # 4. Action 2: Plan-Gated Apply (Never blind apply!)
+      - name: Generate Plan Artifact for Apply
+        if: inputs.action == 'apply'
+        run: terraform plan -out=tfplan
+
+      - name: Execute Validated Plan
+        if: inputs.action == 'apply'
+        run: terraform apply tfplan
+
+      # 5. Action 3: Execute Destroy (Only if confirmed)
+      - name: Execute Controlled Destroy
+        if: inputs.action == 'destroy'
+        run: terraform destroy -auto-approve
