@@ -27,6 +27,7 @@ module "staging_rds" {
 }
 
 # 3. Declarative GitOps Engine: ArgoCD
+# 3. Declarative GitOps Engine: ArgoCD
 resource "helm_release" "argocd" {
   name             = "argocd"
   repository       = "https://argoproj.github.io/argo-helm"
@@ -40,7 +41,12 @@ resource "helm_release" "argocd" {
     value = "ClusterIP"
   }
 
-  # CRITICAL FIX: Wait for the AWS Load Balancer Controller to be fully running first!
+  # AUTOMATED: Bakes the --enable-helm flag into ArgoCD on install!
+  set {
+    name  = "configs.cm.kustomize\\.buildOptions"
+    value = "--enable-helm"
+  }
+
   depends_on = [
     module.staging_eks,
     helm_release.aws_load_balancer_controller
