@@ -35,6 +35,8 @@ resource "helm_release" "argocd" {
   version          = "6.7.18"
   namespace        = "argocd"
   create_namespace = true
+  wait = false
+  timeout = 600
 
   set {
     name  = "server.service.type"
@@ -61,7 +63,6 @@ resource "helm_release" "argocd" {
 module "load_balancer_controller_irsa_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "5.39.0"
-
   role_name                              = "nexora-staging-load-balancer-controller"
   attach_load_balancer_controller_policy = true
 
@@ -80,7 +81,8 @@ resource "helm_release" "aws_load_balancer_controller" {
   chart      = "aws-load-balancer-controller"
   version    = "1.7.2"
   namespace  = "kube-system"
-
+  wait = false
+  timeout = 600
   set {
     name  = "clusterName"
     value = module.staging_eks.cluster_name
