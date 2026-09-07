@@ -7,7 +7,7 @@ module "staging_eks" {
   environment         = "staging"
   vpc_id              = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids          = data.terraform_remote_state.shared.outputs.private_subnets
-  node_instance_types = ["t3.micro"]
+  node_instance_types = ["t3.small"]
   desired_size        = 2
   min_size            = 1
   max_size            = 3
@@ -24,4 +24,74 @@ module "staging_rds" {
   instance_class          = "db.t3.micro"
   multi_az                = false
   backup_retention_period = 1
+}
+
+# 3. Declarative GitOps Engine: ArgoCD
+resource "helm_release" "argocd" {
+  name             = "argocd"
+  repository       = "https://argoproj.github.io/argo-helm"
+  chart            = "argo-cd"
+  version          = "6.7.18"
+  namespace        = "argocd"
+  create_namespace = true
+
+  # Expose server cleanly
+  set {
+    name  = "server.service.type"
+    value = "ClusterIP"
+  }
+
+  depends_on = [module.staging_eks]
+}
+
+# =============================================================================
+# 4. AWS LOAD BALANCER CONTROLLER (Native Ingress via ALBs)
+# =============================================================================
+
+# 4a. Create the IAM Role for the Controller via OIDC (IRSA)
+module "load_balancer_controller_irsa_role" {
+  source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+  version = "5.39.0"
+
+  role_name                              = "nexora-staging-load-balancer-controller"
+  attach_load_balancer_controller_policy = true
+
+  oidc_providers = {
+    ex = {
+      provider_arn               = module.staging_eks.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:aws-load-balancer-controller"]
+    }
+  }
+}
+
+# 4b. Install the AWS Load Balancer Controller via Helm
+resource "helm_release" "aws_load_balancer_controller" {
+  name       = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  chart      = "aws-load-balancer-controller"
+  version    = "1.7.2"
+  namespace  = "kube-system"
+
+  set {
+    name  = "clusterName"
+    value = module.staging_eks.cluster_name
+  }
+
+  set {
+    name  = "serviceAccount.create"
+    value = "true"
+  }
+
+  set {
+    name  = "serviceAccount.name"
+    value = "aws-load-balancer-controller"
+  }
+
+  # Injects the IAM Role ARN we just created!
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = module.load_balancer_controller_irsa_role.iam_role_arn
+  }
+
+  depends_on = [module.staging_eks]
 }
