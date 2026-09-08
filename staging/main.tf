@@ -133,13 +133,11 @@ resource "helm_release" "argocd_root_app" {
 
   values = [
     yamlencode({
-      applications = [
-        {
-          name      = "platform-bootstrap"
+      applications = {
+        platform-bootstrap = {
           namespace = "argocd"
           project   = "default"
           source = {
-            # Tells ArgoCD to look at the apps/ folder in platform-config!
             repoURL        = "https://github.com/Nexora-Banking-App/platform-config.git"
             targetRevision = "HEAD"
             path           = "apps"
@@ -155,11 +153,11 @@ resource "helm_release" "argocd_root_app" {
             }
           }
         }
-      ]
+      }
     })
   ]
 
   depends_on = [
-    helm_release.argocd # Wait for ArgoCD to be installed first
+    helm_release.argocd
   ]
 }
