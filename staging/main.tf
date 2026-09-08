@@ -3,7 +3,7 @@ module "staging_eks" {
   source = "git::https://github.com/Nexora-Banking-App/infra-modules.git//eks?ref=main"
 
   cluster_name        = "nexora-staging"
-  cluster_version     = "1.31"
+  cluster_version     = "1.32"
   environment         = "staging"
   vpc_id              = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids          = data.terraform_remote_state.shared.outputs.private_subnets
@@ -118,4 +118,48 @@ module "external_secrets_irsa_role" {
       namespace_service_accounts = ["external-secrets:external-secrets"]
     }
   }
+}
+
+# =============================================================================
+# 6. ARGOCD ROOT APP-OF-APPS BOOTSTRAP (100% Hands-Free GitOps)
+# =============================================================================
+resource "helm_release" "argocd_root_app" {
+  name       = "argocd-root-app"
+  repository = "https://argoproj.github.io/argo-helm"
+  chart      = "argocd-apps"
+  version    = "2.0.0"
+  namespace  = "argocd"
+  wait       = false
+
+  values = [
+    yamlencode({
+      applications = [
+        {
+          name      = "platform-bootstrap"
+          namespace = "argocd"
+          project   = "default"
+          source = {
+            # Tells ArgoCD to look at the apps/ folder in platform-config!
+            repoURL        = "https://github.com/Nexora-Banking-App/platform-config.git"
+            targetRevision = "HEAD"
+            path           = "apps"
+          }
+          destination = {
+            server    = "https://kubernetes.default.svc"
+            namespace = "argocd"
+          }
+          syncPolicy = {
+            automated = {
+              prune    = true
+              selfHeal = true
+            }
+          }
+        }
+      ]
+    })
+  ]
+
+  depends_on = [
+    helm_release.argocd # Wait for ArgoCD to be installed first
+  ]
 }
