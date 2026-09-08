@@ -1,4 +1,6 @@
-# 1. Staging EKS Cluster
+# =============================================================================
+# 1. EKS KUBERNETES CLUSTER (v1.31 on AL2023 t3.micro)
+# =============================================================================
 module "staging_eks" {
   source = "git::https://github.com/Nexora-Banking-App/infra-modules.git//eks?ref=main"
 
@@ -7,13 +9,15 @@ module "staging_eks" {
   environment         = "staging"
   vpc_id              = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids          = data.terraform_remote_state.shared.outputs.private_subnets
-  node_instance_types = ["c7i-flex.large"] # Use t3.micro for Free Tier, t3.small for more power
+  node_instance_types = ["c7i-flex.large"]
   desired_size        = 2
   min_size            = 1
   max_size            = 3
 }
 
-# 2. Independent Staging Database (Single-AZ to save cost)
+# =============================================================================
+# 2. INDEPENDENT STAGING RDS MYSQL DATABASE
+# =============================================================================
 module "staging_rds" {
   source = "git::https://github.com/Nexora-Banking-App/infra-modules.git//rds?ref=main"
 
@@ -26,34 +30,9 @@ module "staging_rds" {
   backup_retention_period = 1
 }
 
-# 3. Declarative GitOps Engine: ArgoCD
-resource "helm_release" "argocd" {
-  name             = "argocd"
-  repository       = "https://argoproj.github.io/argo-helm"
-  chart            = "argo-cd"
-  version          = "6.7.18"
-  namespace        = "argocd"
-  create_namespace = true
-  wait             = false
-  timeout          = 600
-
-  set {
-    name  = "server.service.type"
-    value = "ClusterIP"
-  }
-
-  set {
-    name  = "configs.cm.kustomize\\.buildOptions"
-    value = "--enable-helm"
-  }
-
-  depends_on = [
-    module.staging_eks,
-    helm_release.aws_load_balancer_controller
-  ]
-}
-
-# 4. AWS LOAD BALANCER CONTROLLER (Native Ingress via ALBs)
+# =============================================================================
+# 3. AWS LOAD BALANCER CONTROLLER (IRSA + Helm)
+# =============================================================================
 module "load_balancer_controller_irsa_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "5.39.0"
@@ -101,7 +80,9 @@ resource "helm_release" "aws_load_balancer_controller" {
   depends_on = [module.staging_eks]
 }
 
-# 5. EXTERNAL SECRETS OPERATOR IAM ROLE (IRSA)
+# =============================================================================
+# 4. EXTERNAL SECRETS OPERATOR IAM ROLE (IRSA)
+# =============================================================================
 module "external_secrets_irsa_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
   version = "5.39.0"
@@ -121,8 +102,92 @@ module "external_secrets_irsa_role" {
 }
 
 # =============================================================================
-# 6. ARGOCD ROOT APP-OF-APPS BOOTSTRAP (100% Hands-Free GitOps)
+# 5. ISTIO SERVICE MESH BASE & CONTROL PLANE (Automated Helm Bootstrap)
 # =============================================================================
+resource "helm_release" "istio_base" {
+  name             = "istio-base"
+  repository       = "https://istio-release.storage.googleapis.com/charts"
+  chart            = "base"
+  version          = "1.22.0"
+  namespace        = "istio-system"
+  create_namespace = true
+  wait             = true
+
+  depends_on = [module.staging_eks]
+}
+
+resource "helm_release" "istiod" {
+  name             = "istiod"
+  repository       = "https://istio-release.storage.googleapis.com/charts"
+  chart            = "istiod"
+  version          = "1.22.0"
+  namespace        = "istio-system"
+  create_namespace = true
+  wait             = false
+
+  set {
+    name  = "pilot.resources.requests.cpu"
+    value = "50m"
+  }
+
+  set {
+    name  = "pilot.resources.requests.memory"
+    value = "128Mi"
+  }
+
+  depends_on = [helm_release.istio_base]
+}
+
+# =============================================================================
+# 6. ARGO ROLLOUTS CONTROLLER & CRDS (Automated Helm Bootstrap)
+# =============================================================================
+resource "helm_release" "argo_rollouts" {
+  name             = "argo-rollouts"
+  repository       = "https://argoproj.github.io/argo-helm"
+  chart            = "argo-rollouts"
+  version          = "2.37.1"
+  namespace        = "argo-rollouts"
+  create_namespace = true
+  wait             = false
+
+  set {
+    name  = "installCRDs"
+    value = "true"
+  }
+
+  depends_on = [module.staging_eks]
+}
+
+# =============================================================================
+# 7. ARGOCD GITOPS ENGINE & ROOT APP-OF-APPS BOOTSTRAP
+# =============================================================================
+resource "helm_release" "argocd" {
+  name             = "argocd"
+  repository       = "https://argoproj.github.io/argo-helm"
+  chart            = "argo-cd"
+  version          = "6.7.18"
+  namespace        = "argocd"
+  create_namespace = true
+  wait             = false
+  timeout          = 600
+
+  set {
+    name  = "server.service.type"
+    value = "ClusterIP"
+  }
+
+  # Bakes --enable-helm directly into ArgoCD on install
+  set {
+    name  = "configs.cm.kustomize\\.buildOptions"
+    value = "--enable-helm"
+  }
+
+  depends_on = [
+    module.staging_eks,
+    helm_release.aws_load_balancer_controller
+  ]
+}
+
 resource "helm_release" "argocd_root_app" {
   name       = "argocd-root-app"
   repository = "https://argoproj.github.io/argo-helm"
@@ -158,6 +223,8 @@ resource "helm_release" "argocd_root_app" {
   ]
 
   depends_on = [
-    helm_release.argocd
+    helm_release.argocd,
+    helm_release.istiod,
+    helm_release.argo_rollouts
   ]
 }
