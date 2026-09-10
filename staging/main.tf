@@ -24,7 +24,7 @@ module "staging_rds" {
   environment             = "staging"
   vpc_id                  = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids              = data.terraform_remote_state.shared.outputs.private_subnets
-  eks_security_group_id   = module.staging_eks.cluster_security_group_id
+  eks_security_group_id   = module.staging_eks.node_security_group_id
   instance_class          = "db.t3.micro"
   multi_az                = false
   backup_retention_period = 1
