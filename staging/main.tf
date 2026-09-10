@@ -31,7 +31,7 @@ module "staging_rds" {
 }
 
 # =============================================================================
-# 3. AWS LOAD BALANCER CONTROLLER (IRSA + Helm)
+# 3. AWS LOAD BALANCER CONTROLLER (Native Ingress via ALBs)
 # =============================================================================
 module "load_balancer_controller_irsa_role" {
   source  = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
@@ -54,7 +54,10 @@ resource "helm_release" "aws_load_balancer_controller" {
   chart      = "aws-load-balancer-controller"
   version    = "1.7.2"
   namespace  = "kube-system"
-  wait       = false
+  
+  # CRITICAL FIX: MUST be true. We MUST wait for ALB pods to be online 
+  # before installing anything else, or its webhook will deadlock the cluster!
+  wait       = true 
   timeout    = 600
 
   set {
@@ -102,7 +105,7 @@ module "external_secrets_irsa_role" {
 }
 
 # =============================================================================
-# 5. ISTIO SERVICE MESH BASE & CONTROL PLANE (Automated Helm Bootstrap)
+# 5. ISTIO SERVICE MESH BASE & CONTROL PLANE
 # =============================================================================
 resource "helm_release" "istio_base" {
   name             = "istio-base"
@@ -113,7 +116,8 @@ resource "helm_release" "istio_base" {
   create_namespace = true
   wait             = true
 
-  depends_on = [module.staging_eks]
+  # CRITICAL FIX: Wait for ALB Controller to finish booting to prevent Webhook deadlock!
+  depends_on = [helm_release.aws_load_balancer_controller]
 }
 
 resource "helm_release" "istiod" {
@@ -139,7 +143,7 @@ resource "helm_release" "istiod" {
 }
 
 # =============================================================================
-# 6. ARGO ROLLOUTS CONTROLLER & CRDS (Automated Helm Bootstrap)
+# 6. ARGO ROLLOUTS CONTROLLER & CRDS
 # =============================================================================
 resource "helm_release" "argo_rollouts" {
   name             = "argo-rollouts"
@@ -155,7 +159,8 @@ resource "helm_release" "argo_rollouts" {
     value = "true"
   }
 
-  depends_on = [module.staging_eks]
+  # CRITICAL FIX: Wait for ALB Controller!
+  depends_on = [helm_release.aws_load_balancer_controller]
 }
 
 # =============================================================================
@@ -176,16 +181,13 @@ resource "helm_release" "argocd" {
     value = "ClusterIP"
   }
 
-  # Bakes --enable-helm directly into ArgoCD on install
   set {
     name  = "configs.cm.kustomize\\.buildOptions"
     value = "--enable-helm"
   }
 
-  depends_on = [
-    module.staging_eks,
-    helm_release.aws_load_balancer_controller
-  ]
+  # CRITICAL FIX: Wait for ALB Controller!
+  depends_on = [helm_release.aws_load_balancer_controller]
 }
 
 resource "helm_release" "argocd_root_app" {
