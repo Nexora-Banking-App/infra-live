@@ -54,11 +54,11 @@ resource "helm_release" "aws_load_balancer_controller" {
   chart      = "aws-load-balancer-controller"
   version    = "1.7.2"
   namespace  = "kube-system"
-  
+
   # CRITICAL FIX: MUST be true. We MUST wait for ALB pods to be online 
   # before installing anything else, or its webhook will deadlock the cluster!
-  wait       = true 
-  timeout    = 600
+  wait    = true
+  timeout = 600
 
   set {
     name  = "clusterName"
