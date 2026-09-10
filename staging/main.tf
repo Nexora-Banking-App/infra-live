@@ -18,13 +18,13 @@ module "staging_eks" {
 # =============================================================================
 # 2. INDEPENDENT STAGING RDS MYSQL DATABASE
 # =============================================================================
+# 2. Independent Staging Database (Single-AZ to save cost)
 module "staging_rds" {
   source = "git::https://github.com/Nexora-Banking-App/infra-modules.git//rds?ref=main"
 
   environment             = "staging"
   vpc_id                  = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids              = data.terraform_remote_state.shared.outputs.private_subnets
-  eks_security_group_id   = module.staging_eks.node_security_group_id
   instance_class          = "db.t3.micro"
   multi_az                = false
   backup_retention_period = 1
