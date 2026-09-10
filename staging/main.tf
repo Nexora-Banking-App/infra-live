@@ -1,11 +1,11 @@
 # =============================================================================
-# 1. EKS KUBERNETES CLUSTER (v1.31 on AL2023 t3.micro)
+# 1. EKS KUBERNETES CLUSTER (v1.33)
 # =============================================================================
 module "staging_eks" {
   source = "git::https://github.com/Nexora-Banking-App/infra-modules.git//eks?ref=main"
 
   cluster_name        = "nexora-staging"
-  cluster_version     = "1.32"
+  cluster_version     = "1.33"
   environment         = "staging"
   vpc_id              = data.terraform_remote_state.shared.outputs.vpc_id
   subnet_ids          = data.terraform_remote_state.shared.outputs.private_subnets
