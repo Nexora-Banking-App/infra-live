@@ -230,3 +230,23 @@ resource "helm_release" "argocd_root_app" {
     helm_release.argo_rollouts
   ]
 }
+# =============================================================================
+# 8. KUBERNETES METRICS SERVER (For HPA & kubectl top)
+# =============================================================================
+resource "helm_release" "metrics_server" {
+  name             = "metrics-server"
+  repository       = "https://kubernetes-sigs.github.io/metrics-server/"
+  chart            = "metrics-server"
+  version          = "3.12.1"
+  namespace        = "kube-system"
+  create_namespace = true
+  wait             = false
+
+  # AUTOMATED FIX: Bypass self-signed kubelet certificates on AWS EKS!
+  set {
+    name  = "args[0]"
+    value = "--kubelet-insecure-tls"
+  }
+
+  depends_on = [module.staging_eks]
+}
