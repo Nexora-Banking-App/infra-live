@@ -27,13 +27,14 @@ This repository is the **State Execution Engine** for the Nexora Enterprise Plat
 ## Table of Contents
 
 1. [Architectural Philosophy](#architectural-philosophy)
-2. [Environment Topology](#environment-topology)
-3. [State Management & Concurrency](#state-management--concurrency)
-4. [CI/CD Deployment Pipeline & Safety Gates](#cicd-deployment-pipeline--safety-gates)
-5. [The Terraform-to-GitOps Handoff](#the-terraform-to-gitops-handoff)
-6. [Measured Disaster Recovery (DR) Execution](#measured-disaster-recovery-dr-execution)
-7. [Real-World Troubleshooting & Solutions](#real-world-troubleshooting--solutions)
-8. [Known Gaps & Open Items](#known-gaps--open-items)
+2. [Current Staging Environment](#current-staging-environment)
+3. [Environment Topology](#environment-topology)
+4. [State Management & Concurrency](#state-management--concurrency)
+5. [CI/CD Deployment Pipeline & Safety Gates](#cicd-deployment-pipeline--safety-gates)
+6. [The Terraform-to-GitOps Handoff](#the-terraform-to-gitops-handoff)
+7. [Measured Disaster Recovery (DR) Execution](#measured-disaster-recovery-dr-execution)
+8. [Real-World Troubleshooting & Solutions](#real-world-troubleshooting--solutions)
+9. [Known Gaps & Open Items](#known-gaps--open-items)
 
 ---
 
@@ -43,6 +44,19 @@ While `infra-modules` defines *how* infrastructure is built, `infra-live` define
 
 By strictly separating state from blueprints, we enforce blast-radius isolation. Variables like instance sizing, Multi-AZ high availability, and retention policies are injected here. Furthermore, this repository serves as the absolute boundary between **Infrastructure Provisioning** and **Application State**: Terraform's responsibility ends the millisecond the ArgoCD Root Application is injected into the cluster.
 
+### Current Staging Environment
+
+Verified **2026-10-06**. The active Terraform environment is `staging/`:
+
+* EKS cluster `nexora-staging`, Kubernetes `1.33` (live nodes report `v1.33.13-eks-3b4a6ca`), in `us-east-1`.
+* Managed node group uses `m7i-flex.large`, desired capacity 2, minimum 1, maximum 3.
+* RDS MySQL is `db.t3.micro`, Single-AZ, with one-day automated backup retention.
+* Terraform bootstraps the AWS Load Balancer Controller, Istio, Argo Rollouts, Argo CD, and the `platform-bootstrap` root app. Argo CD then reconciles platform and application resources.
+* Argo CD `application.resourceTrackingMethod` is `annotation+label`, avoiding ownership collisions with operator-generated resources.
+
+This describes staging only; it does not assert that production is deployed or
+healthy.
+
 ---
 
 ## Environment Topology
@@ -50,8 +64,8 @@ By strictly separating state from blueprints, we enforce blast-radius isolation.
 The infrastructure is partitioned into distinct state files to minimize cross-domain impact:
 
 * **`prod-shared/`:** The Regional Foundation. Contains the underlying AWS VPC, NAT Gateways, and Route Tables. Decoupling the network from compute ensures that destroying a Kubernetes cluster during a DR drill never drops the corporate network.
-* **`staging/`:** The Pre-Production Environment. Runs Kubernetes v1.31 on `c7i-flex.large` nodes to eliminate ENI pod-density limits. Utilizes a cost-optimized Single-AZ RDS MySQL database (`multi_az = false`) and 1-day backup retention.
-* **`prod/`:** The Production Environment. Configured for synchronous Multi-AZ RDS deployments (RPO=0) to guarantee zero data loss during an Availability Zone outage.
+* **`staging/`:** The Pre-Production Environment. Runs Kubernetes 1.33 on `m7i-flex.large` nodes (currently two nodes, autoscaling bounds 1–3). Uses a cost-optimized Single-AZ RDS MySQL database (`db.t3.micro`, `multi_az = false`) and one-day backup retention.
+* **`prod/`:** Production Terraform configuration is maintained separately. Consult the live production state before assuming deployed size, availability, or recovery characteristics.
 
 ---
 
@@ -66,7 +80,7 @@ This repository utilizes modern Terraform native S3 conditional writes for state
 
 ## CI/CD Deployment Pipeline & Safety Gates
 
-All infrastructure is mutated exclusively via GitHub Actions (`.github/workflows/terraform-pipeline.yml`). Manual `terraform apply` from local laptops is actively prevented by OIDC trust scoping.
+The repository provides a GitHub Actions workflow (`.github/workflows/terraform-pipeline.yml`) for infrastructure changes. The workflow uses GitHub Actions OIDC to obtain AWS credentials; this describes the supported pipeline path and does not itself prove that direct local Terraform access is technically blocked.
 
 ### 1. Secretless Authentication (GitHub Actions OIDC)
 We utilize **GitHub Actions CI/CD OIDC Federation**. The pipeline runner dynamically requests a short-lived JWT, trading it for AWS STS credentials. *(Note: This is a distinct trust boundary from the EKS cluster's internal IRSA OIDC provider)*.
@@ -99,13 +113,15 @@ At this exact step, Terraform's job is complete. ArgoCD awakens, reads the `plat
 
 This repository houses the execution mechanism for our platform DR drills.
 
-**The Drill Execution:**
-1. Execute `destroy` on `staging` via GitHub Actions (wiping the EKS cluster, nodes, and operators).
-2. Execute `apply` on `staging` via GitHub Actions.
-3. Terraform reconstitutes the cluster and injects ArgoCD. ArgoCD automatically reconciles all microservices, secrets, and meshes.
+**Before any manual teardown:** Staging RDS is configured with `skip_final_snapshot = true`, and its Secrets Manager credentials use a zero-day recovery window. A full destroy can irreversibly delete database contents and secrets. Take and verify an RDS snapshot/export and record required secrets first. Kafka EBS volumes have per-volume `Retain` policies; a rebuilt cluster will not automatically adopt them and requires deliberate PV/PVC recovery. Never treat a Terraform destroy as a routine sync or run it without a separate teardown decision.
+
+**Rebuild sequence (only after backup and an explicit teardown decision):**
+1. Apply the `staging` Terraform configuration to provision AWS infrastructure and bootstrap the cluster.
+2. Verify worker readiness, EBS CSI, External Secrets, and the database before reconciling workloads.
+3. Argo CD reconciles platform applications and application manifests from their configured Git revisions.
 
 **Empirical Results:**
-* **Measured RTO (Recovery Time Objective):** **23 minutes, 50 seconds** *(From total deletion to a fully healthy, encrypted, load-balanced application state on baseline 1-replica architecture)*.
+* **Previously measured RTO:** **23 minutes, 50 seconds** for an earlier baseline. This historical measurement is not a guarantee for the current Kafka-enabled setup.
 
 ---
 
