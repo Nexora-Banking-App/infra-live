@@ -186,6 +186,11 @@ resource "helm_release" "argocd" {
     value = "--enable-helm"
   }
 
+  set {
+    name  = "configs.cm.application\\.resourceTrackingMethod"
+    value = "annotation+label"
+  }
+
   # CRITICAL FIX: Wait for ALB Controller!
   depends_on = [helm_release.aws_load_balancer_controller]
 }
