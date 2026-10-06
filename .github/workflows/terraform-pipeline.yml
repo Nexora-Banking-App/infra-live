@@ -101,5 +101,8 @@ jobs:
 
       # 5. Action 3: Execute Destroy (Only if confirmed)
       - name: Execute Controlled Destroy
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+          TF_VAR_alert_password: ${{ secrets.ALERT_APP_PASSWORD }}
         if: inputs.action == 'destroy'
         run: terraform destroy -auto-approve
