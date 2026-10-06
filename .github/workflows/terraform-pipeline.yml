@@ -78,11 +78,17 @@ jobs:
 
       # 3. Action 1: Inspection Plan Only
       - name: Generate Speculative Plan
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+          TF_VAR_alert_password: ${{ secrets.ALERT_APP_PASSWORD }}
         if: inputs.action == 'plan'
         run: terraform plan
 
       # 4. Action 2: Plan-Gated Apply (Never blind apply!)
       - name: Generate Plan Artifact for Apply
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+          TF_VAR_alert_password: ${{ secrets.ALERT_APP_PASSWORD }}
         if: inputs.action == 'apply'
         run: terraform plan -out=tfplan
 
