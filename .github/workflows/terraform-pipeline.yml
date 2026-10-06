@@ -88,6 +88,9 @@ jobs:
 
       - name: Execute Validated Plan
         if: inputs.action == 'apply'
+        env:
+          TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+          TF_VAR_alert_password: ${{ secrets.ALERT_APP_PASSWORD }}
         run: terraform apply tfplan
 
       # 5. Action 3: Execute Destroy (Only if confirmed)

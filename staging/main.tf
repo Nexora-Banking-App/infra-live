@@ -250,3 +250,18 @@ resource "helm_release" "metrics_server" {
 
   depends_on = [module.staging_eks]
 }
+# =============================================================================
+# 9. ALERTMANAGER SMTP CREDENTIALS (AWS SECRETS MANAGER)
+# =============================================================================
+resource "aws_secretsmanager_secret" "alerting_credentials" {
+  name                    = "nexora/staging/alerting-credentials"
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "alerting_credentials_val" {
+  secret_id     = aws_secretsmanager_secret.alerting_credentials.id
+  secret_string = jsonencode({
+    SMTP_EMAIL    = var.alert_email
+    SMTP_PASSWORD = var.alert_password
+  })
+}
